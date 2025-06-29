@@ -250,10 +250,10 @@ const ThemeSelectionScreen = () => {
           <button
             onClick={() => handleSetTheme('light')}
             className="flex-1 px-8 py-4 rounded-full bg-white text-gray-900 border-2 border-gray-300 shadow-lg
-                       hover:bg-gray-100 hover:border-red-400 transform hover:scale-105 transition-all duration-300
+                       hover:bg-gray-100 hover:border-teal-400 transform hover:scale-105 transition-all duration-300
                        font-semibold text-xl group relative overflow-hidden"
           >
-            <span className="absolute inset-0 w-full h-full bg-gradient-to-br from-red-100 to-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+            <span className="absolute inset-0 w-full h-full bg-gradient-to-br from-teal-50 to-white opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
             <span className="relative z-10 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sun mr-3"><circle cx="12" cy="12" r="8"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/></svg>
               Light Mode
@@ -262,10 +262,10 @@ const ThemeSelectionScreen = () => {
           <button
             onClick={() => handleSetTheme('dark')}
             className="flex-1 px-8 py-4 rounded-full bg-gray-800 text-white border-2 border-gray-700 shadow-lg
-                       hover:bg-gray-700 hover:border-red-400 transform hover:scale-105 transition-all duration-300
+                       hover:bg-gray-700 hover:border-teal-400 transform hover:scale-105 transition-all duration-300
                        font-semibold text-xl group relative overflow-hidden"
           >
-            <span className="absolute inset-0 w-full h-full bg-gradient-to-br from-red-800 to-gray-900 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+            <span className="absolute inset-0 w-full h-full bg-gradient-to-br from-teal-800 to-gray-900 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
             <span className="relative z-10 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
               Dark Mode
@@ -310,6 +310,13 @@ const AppContent = () => {
   const [llmTestCases, setLlmTestCases] = useState('');
   const [isLoadingTestCases, setIsLoadingTestCases] = useState(false);
   const [showLlmTestCases, setShowLlmTestCases] = useState(false);
+
+  // State for Gemini chat interaction
+  const [userQuery, setUserQuery] = useState('');
+  const [geminiResponse, setGeminiResponse] = useState('');
+  const [isLoadingGeminiChat, setIsLoadingGeminiChat] = useState(false);
+  const [showGeminiChat, setShowGeminiChat] = useState(false);
+  const chatResponseRef = useRef(null);
 
 
   // Memoize all programs into a flat array for efficient search and navigation
@@ -367,11 +374,14 @@ const AppContent = () => {
         setExpandedCategories(prev => new Set(prev).add(filteredProgramsFlat[0].category));
       }
     }
-    // Reset LLM explanations and test cases when program changes
+    // Reset LLM explanations, test cases and chat when program changes
     setLlmExplanation('');
     setShowLlmExplanation(false);
     setLlmTestCases('');
     setShowLlmTestCases(false);
+    setGeminiResponse('');
+    setUserQuery('');
+    setShowGeminiChat(false);
   }, [searchTerm, filteredProgramsFlat, selectedProgram]); // Dependencies ensure this runs when search or filter changes
 
   // Handle program click
@@ -548,6 +558,55 @@ const AppContent = () => {
     }
   }, [selectedProgram]);
 
+  // Handle Gemini Chat Query
+  const handleGeminiChat = useCallback(async () => {
+    if (!userQuery.trim() || !selectedProgram) return;
+
+    setIsLoadingGeminiChat(true);
+    setGeminiResponse('');
+    setShowGeminiChat(true); // Always show chat section when initiating a query
+
+    try {
+      const prompt = `Given the following Python program, answer the user's question.
+      \nProgram Title: ${selectedProgram.title}
+      \nPython Code:\n\`\`\`python\n${selectedProgram.code}\n\`\`\`
+      \nUser Question: ${userQuery}`;
+
+      let chatHistory = [];
+      chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+      const payload = { contents: chatHistory };
+      const apiKey = ""; // If you want to use models other than gemini-2.0-flash or imagen-3.0-generate-002, provide an API key here. Otherwise, leave this as-is.
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        const text = result.candidates[0].content.parts[0].text;
+        setGeminiResponse(text);
+      } else {
+        setGeminiResponse('Failed to get a response from Gemini. Please try again.');
+        console.error('Gemini API response structure unexpected:', result);
+      }
+    } catch (error) {
+      setGeminiResponse('An error occurred while communicating with Gemini: ' + error.message);
+      console.error('Error calling Gemini API for chat:', error);
+    } finally {
+      setIsLoadingGeminiChat(false);
+      // Scroll to the response after it's loaded
+      setTimeout(() => {
+        chatResponseRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  }, [userQuery, selectedProgram]);
+
 
   const currentIndex = filteredProgramsFlat.findIndex(p => p.id === selectedProgram?.id);
   const isFirstProgram = currentIndex === 0;
@@ -555,18 +614,18 @@ const AppContent = () => {
 
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row bg-gray-100 dark:bg-gray-950 font-inter text-gray-800 dark:text-white transition-colors duration-500 ease-in-out">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-gradient-to-br from-teal-50 to-emerald-100 dark:from-gray-950 dark:to-gray-900 font-inter text-gray-800 dark:text-white transition-colors duration-700 ease-in-out">
       {/* Sidebar for program list */}
       <div
         ref={sidebarRef}
         className={`fixed inset-y-0 left-0 w-72 bg-white dark:bg-gray-800 p-6 shadow-2xl lg:relative lg:translate-x-0 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-500 ease-in-out z-50 flex flex-col`}
       >
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-extrabold text-red-700 dark:text-red-400">Python 140</h2>
+          <h2 className="text-3xl font-extrabold text-teal-700 dark:text-teal-400">Python Zen</h2>
           {/* Theme Toggle Button in Sidebar for Mobile */}
           <button
             onClick={() => handleSetTheme(theme === 'light' ? 'dark' : 'light')}
-            className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-white hover:scale-110 transition-transform duration-300"
+            className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-white hover:scale-110 transition-transform duration-300 shadow-sm"
           >
             {theme === 'light' ? (
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sun"><circle cx="12" cy="12" r="8"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/></svg>
@@ -575,7 +634,7 @@ const AppContent = () => {
             )}
           </button>
           <button
-            className="lg:hidden p-2 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="lg:hidden p-2 rounded-full text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shadow-sm"
             onClick={() => setIsMobileMenuOpen(false)}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
@@ -587,7 +646,7 @@ const AppContent = () => {
           <input
             type="text"
             placeholder="Search programs..."
-            className="w-full p-3 pl-10 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-red-500 dark:focus:ring-red-600 transition-all duration-300 shadow-sm"
+            className="w-full p-3 pl-10 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-teal-500 dark:focus:ring-teal-600 transition-all duration-300 shadow-sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -605,7 +664,7 @@ const AppContent = () => {
                 onClick={() => toggleCategoryExpansion(categoryGroup.category)}
                 className="flex justify-between items-center w-full p-3 my-1 rounded-lg cursor-pointer
                            bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white
-                           hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
+                           hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200 shadow-sm"
               >
                 <h3 className="font-bold text-lg">{categoryGroup.category}</h3>
                 <svg
@@ -618,7 +677,7 @@ const AppContent = () => {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className={`lucide lucide-chevron-down transform transition-transform duration-300 ${expandedCategories.has(categoryGroup.category) ? 'rotate-180' : ''}`}
+                  className={`lucide lucude-chevron-down transform transition-transform duration-300 ${expandedCategories.has(categoryGroup.category) ? 'rotate-180' : ''}`}
                 >
                   <path d="m6 9 6 6 6-6" />
                 </svg>
@@ -630,8 +689,8 @@ const AppContent = () => {
                       key={program.id}
                       className={`p-3 mb-1 rounded-lg cursor-pointer transition-all duration-250 ease-in-out
                         ${selectedProgram?.id === program.id
-                          ? 'bg-gradient-to-r from-red-600 to-red-700 text-white shadow-lg transform translate-x-1'
-                          : 'bg-transparent hover:bg-red-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 hover:text-red-600 dark:hover:text-red-300'
+                          ? 'bg-gradient-to-r from-teal-600 to-emerald-700 text-white shadow-lg transform translate-x-1'
+                          : 'bg-transparent hover:bg-teal-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 hover:text-teal-600 dark:hover:text-teal-300'
                         }`}
                       onClick={() => handleProgramClick(program)}
                     >
@@ -655,7 +714,7 @@ const AppContent = () => {
       <div className="flex-1 p-6 lg:p-8 flex flex-col z-10 overflow-hidden">
         {/* Mobile menu toggle button */}
         <button
-          className="mobile-menu-button lg:hidden fixed top-6 left-6 p-3 rounded-full bg-red-600 text-white shadow-lg z-30 transform hover:scale-110 transition-transform duration-300"
+          className="mobile-menu-button lg:hidden fixed top-6 left-6 p-3 rounded-full bg-teal-600 text-white shadow-lg z-30 transform hover:scale-110 transition-transform duration-300"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-menu"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
@@ -665,9 +724,9 @@ const AppContent = () => {
           <div key={selectedProgram.id} // Key to force re-render/re-animation on selection change
             className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl flex-1 overflow-y-auto custom-scrollbar relative transform transition-opacity duration-500 ease-in-out opacity-100 group">
             {/* Pulsating background circle */}
-            <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-red-300/20 dark:bg-red-600/10 rounded-full -translate-x-1/2 -translate-y-1/2 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 animate-pulse-fade"></div>
+            <div className="absolute top-1/2 left-1/2 w-48 h-48 bg-teal-300/20 dark:bg-teal-600/10 rounded-full -translate-x-1/2 -translate-y-1/2 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700 animate-pulse-fade"></div>
 
-            <h2 className="text-4xl font-extrabold mb-5 text-red-800 dark:text-red-300 leading-snug relative z-10">
+            <h2 className="text-4xl font-extrabold mb-5 text-teal-800 dark:text-teal-300 leading-snug relative z-10">
               {selectedProgram.title}
             </h2>
             <div className="mb-8 relative z-10">
@@ -679,12 +738,13 @@ const AppContent = () => {
             <div className="relative z-10">
               <h3 className="text-2xl font-semibold mb-3 text-gray-700 dark:text-gray-200">Python Code:</h3>
               <div className="relative">
+                {/* Reverting to plain pre code block without syntax highlighter */}
                 <pre className="bg-gray-50 dark:bg-gray-700 p-6 rounded-xl overflow-x-auto text-sm font-mono leading-relaxed whitespace-pre-wrap shadow-inner dark:shadow-md border border-gray-200 dark:border-gray-700 max-h-[60vh] custom-scrollbar">
                   <code>{selectedProgram.code}</code>
                 </pre>
                 <button
                   onClick={handleCopyCode}
-                  className="absolute top-3 right-3 p-2 rounded-lg bg-red-600 text-white shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 transform hover:scale-105 transition-all duration-300 opacity-90"
+                  className="absolute top-3 right-3 p-2 rounded-lg bg-teal-600 text-white shadow-md hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-500 transform hover:scale-105 transition-all duration-300 opacity-90"
                   title="Copy code to clipboard"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clipboard"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
@@ -698,7 +758,7 @@ const AppContent = () => {
               <button
                 onClick={handleGenerateExplanation}
                 disabled={isLoadingLlm}
-                className="flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md bg-red-600 text-white hover:bg-red-700 dark:bg-red-800 dark:hover:bg-red-900 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-800 dark:hover:bg-teal-900 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoadingLlm ? (
                   <>
@@ -718,7 +778,7 @@ const AppContent = () => {
               <button
                 onClick={handleGenerateTestCases}
                 disabled={isLoadingTestCases}
-                className="flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-800 dark:hover:bg-blue-900 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md bg-green-600 text-white hover:bg-green-700 dark:bg-green-800 dark:hover:bg-green-900 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isLoadingTestCases ? (
                   <>
@@ -738,7 +798,7 @@ const AppContent = () => {
 
 
             {showLlmExplanation && (
-              <div className="mt-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl shadow-inner border border-gray-200 dark:border-gray-700">
+              <div className="mt-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl shadow-inner border border-gray-200 dark:border-gray-700 animate-fade-in">
                 <h3 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-200">LLM Explanation:</h3>
                 {llmExplanation ? (
                   <pre className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap font-mono">
@@ -751,7 +811,7 @@ const AppContent = () => {
             )}
 
             {showLlmTestCases && (
-              <div className="mt-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl shadow-inner border border-gray-200 dark:border-gray-700">
+              <div className="mt-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl shadow-inner border border-gray-200 dark:border-gray-700 animate-fade-in">
                 <h3 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-200">LLM Generated Test Cases:</h3>
                 {llmTestCases ? (
                   <pre className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap font-mono">
@@ -763,6 +823,46 @@ const AppContent = () => {
               </div>
             )}
 
+            {/* Gemini Chat Interaction Section */}
+            <div className="mt-6 p-6 bg-gray-50 dark:bg-gray-700 rounded-xl shadow-inner border border-gray-200 dark:border-gray-700 animate-fade-in">
+                <h3 className="text-xl font-semibold mb-3 text-gray-700 dark:text-gray-200 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-message-circle-code mr-2 text-blue-500"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/><path d="m10 10-2 2 2 2"/><path d="m14 14 2-2-2-2"/></svg>
+                    Ask Gemini about this Code:
+                </h3>
+                <textarea
+                    className="w-full p-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 resize-y min-h-[80px] shadow-sm mb-4"
+                    placeholder="E.g., 'What are the edge cases for this program?' or 'How can I optimize this code?'"
+                    value={userQuery}
+                    onChange={(e) => setUserQuery(e.target.value)}
+                    rows="3"
+                ></textarea>
+                <button
+                    onClick={handleGeminiChat}
+                    disabled={isLoadingGeminiChat || !userQuery.trim()}
+                    className="flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-800 dark:hover:bg-blue-900 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {isLoadingGeminiChat ? (
+                        <>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Asking Gemini...
+                        </>
+                    ) : (
+                        <>
+                            Ask Gemini 💬
+                        </>
+                    )}
+                </button>
+
+                {showGeminiChat && geminiResponse && (
+                    <div ref={chatResponseRef} className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-300 dark:border-gray-600 shadow-md animate-fade-in-up">
+                        <h4 className="font-semibold text-gray-700 dark:text-gray-200 mb-2">Gemini's Response:</h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{geminiResponse}</p>
+                    </div>
+                )}
+            </div>
 
             {/* Next/Previous Navigation Buttons */}
             <div className="flex justify-between items-center mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 relative z-10">
@@ -772,7 +872,7 @@ const AppContent = () => {
                 className={`flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md
                            ${isFirstProgram
                              ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                             : 'bg-red-600 text-white hover:bg-red-700 dark:bg-red-800 dark:hover:bg-red-900 transform hover:scale-105 active:scale-95'
+                             : 'bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-800 dark:hover:bg-teal-900 transform hover:scale-105 active:scale-95'
                            }`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-left mr-2"><path d="m15 18-6-6 6-6"/></svg>
@@ -787,7 +887,7 @@ const AppContent = () => {
                 className={`flex items-center px-6 py-3 rounded-full font-semibold text-lg transition-all duration-300 shadow-md
                            ${isLastProgram
                              ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                             : 'bg-red-600 text-white hover:bg-red-700 dark:bg-red-800 dark:hover:bg-red-900 transform hover:scale-105 active:scale-95'
+                             : 'bg-teal-600 text-white hover:bg-teal-700 dark:bg-teal-800 dark:hover:bg-teal-900 transform hover:scale-105 active:scale-95'
                            }`}
               >
                 Next
@@ -830,6 +930,20 @@ const AppContent = () => {
         .animate-pulse-fade {
           animation: pulse-fade 3s infinite ease-in-out;
         }
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.5s ease-out forwards;
+        }
+        @keyframes fade-in-up {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up {
+            animation: fade-in-up 0.4s ease-out forwards;
+        }
       `}</style>
     </div>
   );
@@ -859,4 +973,3 @@ const RootApp = () => (
 );
 
 export default RootApp;
-
